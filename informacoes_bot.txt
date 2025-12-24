@@ -1,2 +1,0 @@
-id_planilha_excel: 1IneXHIUBHlY2fyhIOjC2l_dn5ttfhHi84F89HwGcQlU
-email_chatbot: vectorflow@gen-lang-client-0896584812.iam.gserviceaccount.com
