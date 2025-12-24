@@ -1,0 +1,18 @@
+{
+  "name": "whatsapp-scheduler-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Scheduler Bot using WPPConnect and Google Sheets",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@wppconnect-team/wppconnect": "^1.28.0",
+    "google-spreadsheet": "^4.1.1",
+    "google-auth-library": "^9.0.0",
+    "date-fns": "^2.30.0",
+    "dotenv": "^16.3.1"
+  },
+  "author": "",
+  "license": "ISC"
+}
