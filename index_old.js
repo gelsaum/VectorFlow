@@ -45,31 +45,7 @@ function resetSession(from) {
 async function handleMessage(message) {
     if (message.isGroupMsg || message.from === 'status@broadcast') return;
 
-    let from = message.from;
-
-    // Fix: Tratamento robusto para LID (Linked ID) e números ocultos
-    try {
-        const contact = await whatsapp.getContact(from);
-
-        // Se conseguimos recuperar o contato e ele tem um ID serializado válido (e não é lid)
-        if (contact && contact.id && contact.id._serialized && !contact.id._serialized.includes('@lid')) {
-            from = contact.id._serialized;
-        }
-        // Se contact.id.user existe (apenas o número), construímos o c.us
-        else if (contact && contact.id && contact.id.user) {
-            from = `${contact.id.user}@c.us`;
-        }
-    } catch (e) {
-        console.error('Erro ao resolver contato:', e);
-    }
-
-    // Fallback final de segurança: remover sulfixos estranhos se ainda for LID
-    if (from.includes('@lid')) {
-        // Tenta pegar do sender se disponível
-        if (message.sender && message.sender.id && !message.sender.id.includes('@lid')) {
-            from = message.sender.id;
-        }
-    };
+    const from = message.from;
     const bodyRaw = message.body;
     const body = normalizeText(bodyRaw);
     const session = getSession(from);
@@ -208,7 +184,6 @@ async function startScheduling(from, session) {
         msg += `${i + 1}. ${d.label} \n`;
     });
     msg += `${dates.length + 1}. 📅 Elegir otra fecha\n`;
-    msg += `0. 🔙 Voltar ao Menú Principal\n`;
 
     await whatsapp.sendText(from, msg);
     session.step = STEPS.SELECT_DATE;
@@ -216,12 +191,6 @@ async function startScheduling(from, session) {
 
 // 2. Handle Date -> Show Employees
 async function handleDateSelection(from, input, session) {
-    if (input === '0') {
-        session.step = STEPS.MENU;
-        await sendWelcome(from);
-        return;
-    }
-
     const index = parseInt(input) - 1;
     const dates = session.availableDates || [];
 
@@ -297,7 +266,6 @@ async function processDateChoice(from, session, dateStr) {
     session.availableEmployees.forEach((emp, index) => {
         msg += `${index + 1}. ${emp.name} \n`;
     });
-    msg += `0. 🔙 Voltar para Data\n`;
 
     await whatsapp.sendText(from, msg);
     session.step = STEPS.SELECT_EMPLOYEE;
@@ -305,12 +273,6 @@ async function processDateChoice(from, session, dateStr) {
 
 // 3. Handle Employee -> Show Times
 async function handleEmployeeSelection(from, input, session) {
-    if (input === '0') {
-        // Voltar para Seleção de Data
-        await startScheduling(from, session);
-        return;
-    }
-
     const index = parseInt(input) - 1;
     const employees = session.availableEmployees || [];
 
@@ -347,20 +309,12 @@ async function handleEmployeeSelection(from, input, session) {
     session.data.availableSlots = availableSlots;
     let msg = `* Horarios disponibles:*\n`;
     availableSlots.forEach((slot, i) => msg += `${i + 1}. ${slot} \n`);
-    msg += `0. 🔙 Voltar para Escolha de Profissional\n`;
 
     await whatsapp.sendText(from, msg);
     session.step = STEPS.SELECT_TIME;
 }
 
 async function handleTimeSelection(from, input, session) {
-    if (input === '0') {
-        // Voltar para Seleção de Profissional
-        // Re-executar display de profissionais para a data já selecionada
-        await processDateChoice(from, session, session.data.date);
-        return;
-    }
-
     const index = parseInt(input) - 1;
     const slots = session.data.availableSlots || [];
 
