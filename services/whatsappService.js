@@ -36,7 +36,19 @@ class WhatsappService {
                 waitForLogin: true,
                 autoClose: 0, // Disable auto close on idle
                 puppeteerOptions: {
-                    args: ['--no-sandbox'] // Double check specific puppeteer args passed here too
+                    userDataDir: path.join(process.cwd(), 'tokens', 'booking-bot'),
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--disable-gpu',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-renderer-backgrounding'
+                    ]
                 }
             })
             .then((client) => {
@@ -50,6 +62,13 @@ class WhatsappService {
         this.client.onMessage((message) => {
             if (handler) {
                 handler(message);
+            }
+        });
+
+        this.client.onStateChange((state) => {
+            console.log('[WhatsappService] Status da conexão mudou para:', state);
+            if (state === 'CONFLICT' || state === 'UNLAUNCHED' || state === 'UNPAIRED') {
+                console.log('Sessão desconectada. Tentando relogar ou fechar para nova leitura...');
             }
         });
     }

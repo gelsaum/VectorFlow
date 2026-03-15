@@ -22,8 +22,8 @@ const STEPS = {
 
 const MAIN_MENU_TEXT = `
 *Menú Principal*
-1. Agendar Cita
-2. Ver Mis Citas
+1. Agendar Cita/Horario
+2. Ver Mis Citas/Horarios
 `;
 
 // --- Utils ---
@@ -33,45 +33,42 @@ function normalizeText(text) {
 }
 
 function getSession(from) {
-    if (!userSessions[from]) userSessions[from] = { step: STEPS.START, data: {} };
+    const now = Date.now();
+    const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos em milissegundos
+
+    if (!userSessions[from]) {
+        userSessions[from] = { step: STEPS.START, data: {}, lastActivity: now };
+    } else {
+        // Verifica se passou do tempo limite
+        if (now - userSessions[from].lastActivity > TIMEOUT_MS) {
+            console.log(`[Session] Sessão de ${from} expirou por inatividade. Reiniciando...`);
+            userSessions[from] = { step: STEPS.START, data: {}, lastActivity: now };
+        } else {
+            // Atualiza o tempo de atividade
+            userSessions[from].lastActivity = now;
+        }
+    }
     return userSessions[from];
 }
 
 function resetSession(from) {
-    userSessions[from] = { step: STEPS.START, data: {} };
+    userSessions[from] = { step: STEPS.START, data: {}, lastActivity: Date.now() };
 }
 
 // --- Main Handler ---
 async function handleMessage(message) {
     if (message.isGroupMsg || message.from === 'status@broadcast') return;
 
+    // Simplified: Use the source ID directly to reply.
+    // WPPConnect handles LIDs better natively now.
     let from = message.from;
 
-    // Fix: Tratamento robusto para LID (Linked ID) e números ocultos
-    try {
-        const contact = await whatsapp.getContact(from);
-
-        // Se conseguimos recuperar o contato e ele tem um ID serializado válido (e não é lid)
-        if (contact && contact.id && contact.id._serialized && !contact.id._serialized.includes('@lid')) {
-            from = contact.id._serialized;
-        }
-        // Se contact.id.user existe (apenas o número), construímos o c.us
-        else if (contact && contact.id && contact.id.user) {
-            from = `${contact.id.user}@c.us`;
-        }
-    } catch (e) {
-        console.error('Erro ao resolver contato:', e);
-    }
-
-    // Fallback final de segurança: remover sulfixos estranhos se ainda for LID
-    if (from.includes('@lid')) {
-        // Tenta pegar do sender se disponível
-        if (message.sender && message.sender.id && !message.sender.id.includes('@lid')) {
-            from = message.sender.id;
-        }
-    };
+    // Optional: Log execution context
+    // console.log(`[handleMessage] Processing message from: ${from}`);
     const bodyRaw = message.body;
     const body = normalizeText(bodyRaw);
+    
+    // getSession agora já limpa sessões inativas automaticamente
     const session = getSession(from);
 
     try {
@@ -127,7 +124,7 @@ async function handleMessage(message) {
                 if (['si', 's', 'sim', 'yes', 'confirmar'].includes(body)) {
                     await finalizeAppointment(from, session);
                 } else if (['no', 'nao', 'n', 'cancelar'].includes(body)) {
-                    await whatsapp.sendText(from, 'Cita cancelada.');
+                    await whatsapp.sendText(from, 'Cita/Horario cancelada.');
                     resetSession(from);
                     await sendWelcome(from); // Optional: show menu again
                     session.step = STEPS.MENU;
@@ -183,14 +180,14 @@ async function sendWelcome(from) {
 async function startScheduling(from, session) {
     // 1. Mostrar Datas Disponíveis (Hoje, Amanhã, Depois)
     // Usamos lógica similar ao getNextAvailableDays mas sem checar employee ainda.
-    // Vamos gerar próximos 3 dias válidos (exclui Domingo).
+    // Vamos gerar próximos 6 dias válidos (exclui Domingo).
 
     const dates = [];
     let checkDate = new Date(); // Start Today
     let daysFound = 0;
 
-    // Simple Loop to find next 3 valid days
-    while (daysFound < 3) {
+    // Simple Loop to find next 6 valid days
+    while (daysFound < 6) {
         if (checkDate.getDay() !== 0) { // Not Sunday
             dates.push({
                 date: format(checkDate, 'dd/MM/yyyy'),
@@ -203,7 +200,7 @@ async function startScheduling(from, session) {
 
     session.availableDates = dates;
 
-    let msg = '*Selecciona una fecha para tu cita:*\n';
+    let msg = '*Selecciona una fecha para tu cita/horario:*\n';
     dates.forEach((d, i) => {
         msg += `${i + 1}. ${d.label} \n`;
     });
@@ -244,10 +241,55 @@ async function handleDateSelection(from, input, session) {
 
 // Manual Date Handler re-routed
 async function handleManualDate(from, dateInput, session) {
-    // Normalize logic
-    const parsedDate = parse(dateInput, 'd/M/yyyy', new Date());
-    if (!isValid(parsedDate)) {
-        await whatsapp.sendText(from, 'Foramto inválido. Use dia/mes/ano (ex: 01/02/2025).');
+    // Defines accepted formats. Order matters: 'd/M/yyyy' preferred, then short year 'yy'.
+    const formats = [
+        'd/M/yyyy',
+        'd/M/yy',
+        'd-M-yyyy',
+        'd-M-yy',
+        'd.M.yyyy',
+        'd.M.yy'
+    ];
+
+    let parsedDate = null;
+    let pastDateCandidate = null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+
+    for (const fmt of formats) {
+        const attempt = parse(dateInput, fmt, new Date());
+
+        if (isValid(attempt)) {
+            if (attempt.getFullYear() < 1900) continue;
+            // Check if it's today or future
+            // We use a small buffer or just compare timestamps (attempt is usually 00:00 unless format has time)
+            // parse() returns date with local time set to now?? No, defaults to 00:00 if not specified usually, 
+            // but date-fns parse takes a reference date.
+            // Let's normalize attempt to start of day for comparison.
+            const attemptStart = new Date(attempt);
+            attemptStart.setHours(0, 0, 0, 0);
+
+            if (attemptStart >= today) {
+                parsedDate = attempt;
+                break; // Found a valid future/today date, stop looking (priority)
+            } else {
+                // It's a valid date but in the past (e.g. 0026 or 2020)
+                // Keep it just in case we don't find a future one, 
+                // so we can show the specific "past date" error instead of "invalid format".
+                if (!pastDateCandidate) pastDateCandidate = attempt;
+            }
+        }
+    }
+
+    // If we didn't find a future date but found a past one, use the past one 
+    // (so the validation below catches it with the correct error message).
+    if (!parsedDate && pastDateCandidate) {
+        parsedDate = pastDateCandidate;
+    }
+
+    if (!parsedDate || !isValid(parsedDate)) {
+        await whatsapp.sendText(from, 'Formato inválido. Use dia/mês/ano (ex: 01/02/2026 ou 01/02/26).');
         return;
     }
 
@@ -257,9 +299,7 @@ async function handleManualDate(from, dateInput, session) {
         return;
     }
 
-    // Check Past Date
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize today to start of day
+    // Check Past Date (Redundant check if we prioritized future, but necessary for the candidate fallback)
     const checkDate = new Date(parsedDate);
     checkDate.setHours(0, 0, 0, 0);
 
@@ -383,7 +423,7 @@ async function handleClientName(from, nameInput, session) {
 
     session.data.clientName = nameInput.trim();
 
-    const summary = `*¿Confirmas la cita ?*\n` +
+    const summary = `*¿Confirmas la cita/horario ?*\n` +
         `Profesional: ${session.data.employee.name} \n` +
         `Fecha: ${session.data.date} \n` +
         `Hora: ${session.data.time} \n` +
@@ -413,10 +453,10 @@ async function finalizeAppointment(from, session) {
     const result = await sheetService.addAppointment(appointment);
 
     if (result.success) {
-        await whatsapp.sendText(from, '✅ ¡Cita confirmada con éxito!');
+        await whatsapp.sendText(from, '✅ ¡Cita/horario confirmada con éxito!');
 
         await whatsapp.sendText(from, '*¿Qué deseas hacer ahora?*\n' +
-            '1. Ver detalles de mi cita\n' +
+            '1. Ver detalles de mi cita/horario\n' +
             '2. Finalizar conversación');
 
         session.step = STEPS.POST_APPOINTMENT_ACTION;
@@ -428,7 +468,7 @@ async function finalizeAppointment(from, session) {
             session.step = STEPS.MENU;
             await startScheduling(from, session); // Restart flow easier
         } else {
-            await whatsapp.sendText(from, '❌ Error al guardar la cita. Inténtalo de nuevo.');
+            await whatsapp.sendText(from, '❌ Error al guardar la cita/horario. Inténtalo de nuevo.');
             resetSession(from);
         }
     }
@@ -440,15 +480,15 @@ async function handleListAppointments(from, session) {
     const apps = await sheetService.listarMinhasCitas(phone); // Using new strict function
 
     if (apps.length === 0) {
-        await whatsapp.sendText(from, '📅 No tienes citas futuras agendadas.');
+        await whatsapp.sendText(from, '📅 No tienes citas/horarios futuras agendadas.');
         resetSession(from);
     } else {
         session.myAppointments = apps; // Store for selection
-        let msg = '*Tus Citas Futuras:*\n\n';
+        let msg = '*Tus Citas/Horarios Futuras:*\n\n';
         apps.forEach((app, index) => {
             msg += `${index + 1}. * ${app.data}* a las * ${app.horario}*\n   Con: ${app.funcionario_nome} (${app.status}) \n\n`;
         });
-        msg += '❌ Para cancelar una cita, envía el *número de la opción* que aparece en la lista de arriba.\n' +
+        msg += '❌ Para cancelar una cita/horario, envía el *número de la opción* que aparece en la lista de arriba.\n' +
             '🔙 Envía *0* para volver al menú principal.';
 
         await whatsapp.sendText(from, msg);
@@ -467,19 +507,19 @@ async function handleCancellationSelection(from, input, session) {
     const apps = session.myAppointments || [];
 
     if (isNaN(index) || index < 0 || index >= apps.length) {
-        await whatsapp.sendText(from, '⚠️ Opción inválida. Envía el número de la cita a cancelar o 0 para volver.');
+        await whatsapp.sendText(from, '⚠️ Opción inválida. Envía el número de la cita/horario a cancelar o 0 para volver.');
         return;
     }
 
     const appToCancel = apps[index];
     const phone = from.replace('@c.us', '');
 
-    await whatsapp.sendText(from, '⏳ Cancelando cita...');
+    await whatsapp.sendText(from, '⏳ Cancelando cita/horario...');
 
     const success = await sheetService.cancelarCita(phone, appToCancel.data, appToCancel.horario);
 
     if (success) {
-        await whatsapp.sendText(from, '✅ Cita cancelada con éxito.');
+        await whatsapp.sendText(from, '✅ Cita/horario cancelada con éxito.');
     } else {
         await whatsapp.sendText(from, '❌ Hubo un error al cancelar. Inténtalo de nuevo.');
     }
@@ -523,8 +563,9 @@ const webService = require('./services/webService');
         webService.init(); // Start Web Server
         await sheetService.init();
         console.log('Google Sheets conectado.');
+        whatsapp.start(handleMessage);
     } catch (e) {
         console.error('Fallo crítico al conectar Sheets:', e);
+        process.exit(1);
     }
-    whatsapp.start(handleMessage);
 })();

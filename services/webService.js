@@ -73,9 +73,58 @@ class WebService {
     }
 
     init() {
-        this.server.listen(this.port, () => {
+        this.server.on('error', (e) => {
+            if (e.code === 'EADDRINUSE') {
+                console.log(`Porta ${this.port} em uso, tentando proxima...`);
+                this.port++;
+                this.server.listen(this.port);
+            } else {
+                console.error('Erro no servidor web:', e);
+            }
+        });
+
+        this.server.listen(this.port, async () => {
             console.log('🚀 Servidor Web iniciado en http://localhost:' + this.port + '/scan');
-            console.log('👉 Para acceso remoto, use ngrok: "ngrok http ' + this.port + '"');
+
+            const ngrokUrl = await this.getNgrokUrl();
+            if (ngrokUrl) {
+                console.log('🌍 Public Ngrok URL: ' + ngrokUrl + '/scan');
+            } else {
+                console.log('👉 Para acceso remoto, use ngrok: "ngrok http ' + this.port + '"');
+            }
+        });
+    }
+
+    getNgrokUrl() {
+        return new Promise((resolve) => {
+            const req = http.get('http://127.0.0.1:4040/api/tunnels', (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const json = JSON.parse(data);
+                        const tunnel = json.tunnels.find(t => t.proto === 'https');
+                        if (tunnel) {
+                            resolve(tunnel.public_url);
+                        } else {
+                            console.log('[Ngrok] No tunnel found in API response.');
+                            resolve(null);
+                        }
+                    } catch (e) {
+                        console.log('[Ngrok] Error parsing JSON:', e.message);
+                        resolve(null);
+                    }
+                });
+            });
+            req.on('error', (err) => {
+                console.log('[Ngrok] Request error:', err.message);
+                resolve(null);
+            });
+            req.setTimeout(2000, () => {
+                console.log('[Ngrok] Request timed out.');
+                req.destroy();
+                resolve(null);
+            });
         });
     }
 

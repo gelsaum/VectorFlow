@@ -7,7 +7,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@wppconnect-team/wppconnect": "^1.28.0",
+    "@wppconnect-team/wppconnect": "^1.41.0",
     "date-fns": "^2.30.0",
     "dotenv": "^16.3.1",
     "express": "^5.2.1",

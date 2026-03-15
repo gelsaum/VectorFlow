@@ -100,6 +100,7 @@ class SheetService {
             await this.loadConfig();
         } catch (error) {
             console.error('[SheetService] Error crítico de conexión:', error);
+            fs.writeFileSync('error_log.txt', error.stack || error.toString());
             throw error;
         }
     }
@@ -119,6 +120,7 @@ class SheetService {
 
     async getEmployees() {
         try {
+            if (!this.doc) return [];
             const sheet = this.doc.sheetsByTitle['Funcionarios'];
             if (!sheet) return [];
             const rows = await sheet.getRows();
@@ -277,8 +279,8 @@ class SheetService {
         let checkDate = today;
         let daysFound = 0;
         let attempts = 0;
-        const MAX_ATTEMPTS = 7; // Look ahead 7 days max
-        const REQUIRED_DAYS = 3;
+        const MAX_ATTEMPTS = 14; // Look ahead 14 days max
+        const REQUIRED_DAYS = 6;
 
         while (daysFound < REQUIRED_DAYS && attempts < MAX_ATTEMPTS) {
             // Skip Sundays (0)
@@ -572,11 +574,13 @@ class SheetService {
                 const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 
                 // Almoço hardcoded: Excluir 12:00 e 12:30 (Intervalo de almoço das 12h as 13h)
-                if (timeStr !== '12:00' && timeStr !== '12:30') {
+                // Com intervalo de 45m, slots podem cair em horário diferente.
+                // Mantemos a exclusão do bloqueio de almoço se cair nesse horário.
+                if (timeStr !== '12:15' && timeStr !== '12:30') {
                     baseSlots.push(timeStr);
                 }
 
-                currentMinutes += 30; // Incremento de 30 minutos
+                currentMinutes += 45; // Incremento de 45 minutos (Atualizado de 30)
             }
 
             // Se não passou data/func, retorna base (fallback para compatibilidade)
