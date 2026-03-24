@@ -32,6 +32,17 @@ function normalizeText(text) {
     return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
+function getCleanPhone(message) {
+    let raw = message.from;
+    if (raw.includes('@lid') && message.sender && message.sender.id) {
+        let senderId = typeof message.sender.id === 'string' ? message.sender.id : (message.sender.id._serialized || message.sender.id.user || raw);
+        if (typeof senderId === 'string' && senderId.includes('@c.us')) {
+            raw = senderId;
+        }
+    }
+    return raw.replace(/@c\.us|@s\.whatsapp\.net|@lid|@g\.us/g, '');
+}
+
 function getSession(from) {
     const now = Date.now();
     const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos em milissegundos
@@ -82,9 +93,7 @@ async function handleMessage(message) {
                 if (body === '1') {
                     await startScheduling(from, session);
                 } else if (body === '2') {
-                    await handleListAppointments(from, session);
-                } else if (body === '2') {
-                    await handleListAppointments(from, session);
+                    await handleListAppointments(from, session, message);
                 } else {
                     await whatsapp.sendText(from, 'Opción inválida.\n' + MAIN_MENU_TEXT);
                 }
@@ -122,7 +131,7 @@ async function handleMessage(message) {
 
             case STEPS.CONFIRM_APPOINTMENT:
                 if (['si', 's', 'sim', 'yes', 'confirmar'].includes(body)) {
-                    await finalizeAppointment(from, session);
+                    await finalizeAppointment(from, session, message);
                 } else if (['no', 'nao', 'n', 'cancelar'].includes(body)) {
                     await whatsapp.sendText(from, 'Cita/Horario cancelada.');
                     resetSession(from);
@@ -135,13 +144,13 @@ async function handleMessage(message) {
                 break;
 
             case STEPS.MANAGE_APPOINTMENTS:
-                await handleCancellationSelection(from, body, session);
+                await handleCancellationSelection(from, body, session, message);
                 break;
 
             case STEPS.POST_APPOINTMENT_ACTION:
                 if (body === '1') {
                     // Ver cita (Go to list)
-                    await handleListAppointments(from, session);
+                    await handleListAppointments(from, session, message);
                 } else if (body === '2') {
                     // Finalizar
                     await whatsapp.sendText(from, '¡Gracias por usar nuestro sistema! 👋');
@@ -436,7 +445,7 @@ async function handleClientName(from, nameInput, session) {
 
 
 
-async function finalizeAppointment(from, session) {
+async function finalizeAppointment(from, session, message) {
     if (session.isProcessing) return; // Prevent double submission
     session.isProcessing = true;
 
@@ -445,7 +454,7 @@ async function finalizeAppointment(from, session) {
     const appointment = {
         Data: session.data.date,
         Horario: session.data.time,
-        Cliente_Telefone: from.replace('@c.us', ''),
+        Cliente_Telefone: getCleanPhone(message),
         Cliente_Nome: session.data.clientName,
         Funcionario_Nome: session.data.employee.name
     };
@@ -475,8 +484,8 @@ async function finalizeAppointment(from, session) {
     // No need to reset .isProcessing because we resetSession() or move step
 }
 
-async function handleListAppointments(from, session) {
-    const phone = from.replace('@c.us', '');
+async function handleListAppointments(from, session, message) {
+    const phone = getCleanPhone(message);
     const apps = await sheetService.listarMinhasCitas(phone); // Using new strict function
 
     if (apps.length === 0) {
@@ -496,7 +505,7 @@ async function handleListAppointments(from, session) {
     }
 }
 
-async function handleCancellationSelection(from, input, session) {
+async function handleCancellationSelection(from, input, session, message) {
     if (input === '0') {
         await sendWelcome(from);
         session.step = STEPS.MENU;
@@ -512,7 +521,7 @@ async function handleCancellationSelection(from, input, session) {
     }
 
     const appToCancel = apps[index];
-    const phone = from.replace('@c.us', '');
+    const phone = getCleanPhone(message);
 
     await whatsapp.sendText(from, '⏳ Cancelando cita/horario...');
 
