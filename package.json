@@ -7,14 +7,12 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@wppconnect-team/wppconnect": "^1.41.0",
+    "axios": "^1.13.6",
     "date-fns": "^2.30.0",
     "dotenv": "^16.3.1",
     "express": "^5.2.1",
     "google-auth-library": "^9.0.0",
-    "google-spreadsheet": "^4.1.1",
-    "qrcode": "^1.5.4",
-    "socket.io": "^4.8.3"
+    "google-spreadsheet": "^4.1.1"
   },
   "author": "",
   "license": "ISC"

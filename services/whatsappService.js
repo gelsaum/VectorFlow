@@ -1,97 +1,88 @@
-const wppconnect = require('@wppconnect-team/wppconnect');
-const os = require('os');
-const path = require('path');
-const webService = require('./webService'); // Import WebService
+const axios = require('axios');
+const webService = require('./webService'); // Note: keep require but webService will now act mainly as Express server
 
 class WhatsappService {
     constructor() {
-        this.client = null;
+        this.client = true; // Compatibility flag
+        this.handler = null;
+        this.apiUrl = process.env.EVOLUTION_API_URL;
+        this.apiKey = process.env.EVOLUTION_API_KEY;
+        this.instanceName = process.env.EVOLUTION_INSTANCE_NAME;
     }
 
     async start(messageHandler) {
-        wppconnect
-            .create({
-                session: 'booking-bot',
-                headless: true, // VPS requirement
-                useChrome: false, // We provide explicit path
-                executablePath: path.join(os.homedir(), '.cache', 'puppeteer', 'chrome', 'win64-143.0.7499.169', 'chrome-win64', 'chrome.exe'),
-                browserArgs: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu'
-                ],
-                catchQR: (base64Qr, asciiQR) => {
-                    console.log(asciiQR); // Log in terminal
-                    // Update Web Interface
-                    webService.updateQR(base64Qr);
-                },
-                logQR: true,
-                // Stability settings
-                deviceName: 'BookingBot',
-                device: 'Chrome', // Explicit device type
-                waitForLogin: true,
-                autoClose: 0, // Disable auto close on idle
-                puppeteerOptions: {
-                    userDataDir: path.join(process.cwd(), 'tokens', 'booking-bot'),
-                    args: [
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-accelerated-2d-canvas',
-                        '--no-first-run',
-                        '--no-zygote',
-                        '--disable-gpu',
-                        '--disable-background-timer-throttling',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-renderer-backgrounding'
-                    ]
-                }
-            })
-            .then((client) => {
-                this.client = client;
-                this.startListening(messageHandler);
-            })
-            .catch((error) => console.log(error));
-    }
-
-    startListening(handler) {
-        this.client.onMessage((message) => {
-            if (handler) {
-                handler(message);
-            }
-        });
-
-        this.client.onStateChange((state) => {
-            console.log('[WhatsappService] Status da conexão mudou para:', state);
-            if (state === 'CONFLICT' || state === 'UNLAUNCHED' || state === 'UNPAIRED') {
-                console.log('Sessão desconectada. Tentando relogar ou fechar para nova leitura...');
-            }
-        });
+        this.handler = messageHandler;
+        console.log(`[WhatsappService] Configurado para usar Evolution API en instancia: ${this.instanceName}`);
+        console.log('Esperando webhooks en /webhook...');
     }
 
     async sendText(to, content) {
-        if (!this.client) {
-            console.error('Client not initialized');
+        if (!this.apiUrl || !this.instanceName) {
+            console.error('Evolution API configs missing in .env');
             return;
         }
         try {
-            await this.client.sendText(to, content);
+            // Asegurarse de que el número incluye el sufijo correcto para enviar en Evolution API
+            let number = to;
+            if (!number.includes('@s.whatsapp.net') && !number.includes('@g.us')) {
+                number = `${number}@s.whatsapp.net`;
+            }
+
+            await axios.post(
+                `${this.apiUrl}/message/sendText/${this.instanceName}`,
+                {
+                    number: number,
+                    text: content
+                },
+                {
+                    headers: {
+                        'apikey': this.apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
         } catch (error) {
-            console.error('Error sending message:', error);
+            console.error('Error sending message via Evolution API:', error.response ? error.response.data : error.message);
         }
     }
 
     async getContact(id) {
-        if (!this.client) return null;
-        try {
-            return await this.client.getContact(id);
-        } catch (error) {
-            console.error('Error getting contact:', error);
-            return null;
+        // Fake contact to maintain compatibility, or we could fetch it via Evolution API if really needed
+        return { pushname: 'Cliente' };
+    }
+
+    handleEvolutionWebhook(payload) {
+        if (!this.handler) return;
+        
+        // Atender solo eventos de mensajes entrantes de Evolution API
+        if (payload.event === 'messages.upsert' && payload.data) {
+            const data = payload.data;
+            if (!data.key || data.key.fromMe) return; // Ignorar nuestros propios mensajes o si no hay key
+            
+            // Extraer el texto del mensaje
+            let body = '';
+            if (data.message?.conversation) {
+                body = data.message.conversation;
+            } else if (data.message?.extendedTextMessage?.text) {
+                body = data.message.extendedTextMessage.text;
+            } else if (data.messageType === 'conversation' || data.messageType === 'extendedTextMessage') {
+                body = data.message?.text || '';
+            }
+
+            if (!body) return; // Si no es un mensaje de texto, ignorarlo
+            
+            const from = data.key.remoteJid;
+            const isGroupMsg = from.includes('@g.us');
+            
+            const normalizedMessage = {
+                from: from,
+                body: body,
+                isGroupMsg: isGroupMsg,
+                sender: { id: from },
+                raw: data
+            };
+
+            this.handler(normalizedMessage);
         }
     }
 }

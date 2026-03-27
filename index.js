@@ -1,5 +1,6 @@
+require('dotenv').config();
 const whatsapp = require('./services/whatsappService');
-const sheetService = require('./services/sheetService');
+const apiService = require('./services/apiService');
 const { format, addDays, parse, isValid } = require('date-fns');
 const { es } = require('date-fns/locale');
 
@@ -327,9 +328,9 @@ async function processDateChoice(from, session, dateStr) {
     await whatsapp.sendText(from, `📅 Fecha seleccionada: ${dateStr}. Buscando profesionales disponibles...`);
 
     // Fetch Employees available on this date
-    const employeeNames = await sheetService.listarProfissionaisDisponiveis(dateStr);
+    const employees = await apiService.listarProfissionaisDisponiveis(dateStr);
 
-    if (!employeeNames || employeeNames.length === 0) {
+    if (!employees || employees.length === 0) {
         await whatsapp.sendText(from, '⚠️ Lo siento, no hay profesionales disponibles para esta fecha (Quizás es feriado o están todos ocupados).');
         const errorMsg = '*¿Qué deseas hacer?*\n' +
             '1. Elegir otra fecha\n' +
@@ -340,7 +341,7 @@ async function processDateChoice(from, session, dateStr) {
     }
 
     // Store objects for consistency
-    session.availableEmployees = employeeNames.map(name => ({ name }));
+    session.availableEmployees = employees.map(emp => ({ id: emp.id, name: emp.name }));
 
     let msg = '*Elige un profesional:*\n';
     session.availableEmployees.forEach((emp, index) => {
@@ -374,9 +375,9 @@ async function handleEmployeeSelection(from, input, session) {
     await whatsapp.sendText(from, `⏳ Buscando horarios para ${selectedEmp.name} el ${session.data.date}...`);
 
     // Fetch Slots
-    const availableSlots = await sheetService.getAvailableSlots(
+    const availableSlots = await apiService.getAvailableSlots(
         session.data.date,
-        selectedEmp.name
+        selectedEmp.id
     );
 
     if (availableSlots.length === 0) {
@@ -456,10 +457,11 @@ async function finalizeAppointment(from, session, message) {
         Horario: session.data.time,
         Cliente_Telefone: getCleanPhone(message),
         Cliente_Nome: session.data.clientName,
-        Funcionario_Nome: session.data.employee.name
+        Funcionario_Nome: session.data.employee.name,
+        EmployeeId: session.data.employee.id
     };
 
-    const result = await sheetService.addAppointment(appointment);
+    const result = await apiService.addAppointment(appointment);
 
     if (result.success) {
         await whatsapp.sendText(from, '✅ ¡Cita/horario confirmada con éxito!');
@@ -486,7 +488,7 @@ async function finalizeAppointment(from, session, message) {
 
 async function handleListAppointments(from, session, message) {
     const phone = getCleanPhone(message);
-    const apps = await sheetService.listarMinhasCitas(phone); // Using new strict function
+    const apps = await apiService.listarMinhasCitas(phone); // Using new strict function
 
     if (apps.length === 0) {
         await whatsapp.sendText(from, '📅 No tienes citas/horarios futuras agendadas.');
@@ -525,7 +527,7 @@ async function handleCancellationSelection(from, input, session, message) {
 
     await whatsapp.sendText(from, '⏳ Cancelando cita/horario...');
 
-    const success = await sheetService.cancelarCita(phone, appToCancel.data, appToCancel.horario);
+    const success = await apiService.cancelarCita(phone, appToCancel.data, appToCancel.horario);
 
     if (success) {
         await whatsapp.sendText(from, '✅ Cita/horario cancelada con éxito.');
@@ -570,8 +572,8 @@ const webService = require('./services/webService');
 
     try {
         webService.init(); // Start Web Server
-        await sheetService.init();
-        console.log('Google Sheets conectado.');
+        await apiService.init();
+        console.log('Urutau API conectada.');
         whatsapp.start(handleMessage);
     } catch (e) {
         console.error('Fallo crítico al conectar Sheets:', e);
