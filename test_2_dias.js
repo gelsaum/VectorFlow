@@ -1,8 +1,8 @@
 const { format, addDays } = require('date-fns');
 
 // Configuração da API (Hardcodeada para teste independente)
-const BASE_URL = "https://api.codeart.com.py/api/v1";
-const API_KEY = "ak_tenant_Bb1bNroKe3DcWkKTPC4XCX6FAByn62IH";
+const BASE_URL = "https://studioferreira.codeart.com.py/api/v1";
+const API_KEY = "ak_live_tenant_LFFF2hhbs08q46Ox3vgtjNCLoNSVu2zw";
 const SERVICIO_ID = 1; // 1 = Corte de Cabello
 
 async function testarDisponibilidadeIndependent() {
@@ -62,7 +62,16 @@ async function testarDisponibilidadeIndependent() {
         return;
     }
 
-    const profissional = empregados[0];
+    let profissional = empregados.find(e => {
+        const nomeCompleto = e.nombre_completo || `${e.nombres} ${e.apellidos}`;
+        return nomeCompleto.toLowerCase().includes("vitor");
+    });
+
+    if (!profissional) {
+        console.log("⚠️ Profissional 'Vitor' NÃO ENCONTRADO na sucursal. Usando o primeiro da lista como fallback.");
+        profissional = empregados[0];
+    }
+
     const profId = profissional.id;
     const profNome = profissional.nombre_completo || `${profissional.nombres} ${profissional.apellidos}`;
     console.log(`✅ Profissional selecionado: ${profNome} (ID: ${profId})`);

@@ -1,11 +1,10 @@
 const { format, addDays, getDay, isSameDay, parse, isValid, startOfDay } = require('date-fns');
 const { es } = require('date-fns/locale');
-
 require('dotenv').config();
 
-const BASE_URL = process.env.URUTAU_API_URL || "https://api.codeart.com.py/api/v1";
+const BASE_URL = process.env.URUTAU_API_URL || "https://studioferreira.codeart.com.py/api/v1";
 const API_KEY = process.env.URUTAU_API_KEY;
-const DEFAULT_SERVICIO_ID = process.env.DEFAULT_SERVICIO_ID || 1; // 1 = Corte de Cabello
+const DEFAULT_SERVICIO_ID = process.env.DEFAULT_SERVICIO_ID || 1;
 
 class ApiService {
     constructor() {
@@ -15,6 +14,28 @@ class ApiService {
             "X-Tenant-Key": API_KEY,
             "Content-Type": "application/json"
         };
+        this.TIMEOUT_MS = 10000; // 10 segundos timeout
+    }
+
+    async _fetchWithTimeout(url, options = {}) {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Erro HTTP ${response.status}: ${text}`);
+            }
+            return await response.json();
+        } catch (error) {
+            clearTimeout(id);
+            if (error.name === 'AbortError') throw new Error(`Timeout da API após ${this.TIMEOUT_MS}ms`);
+            throw error; // Repassa erro 500, etc.
+        }
     }
 
     async init() {
@@ -24,8 +45,7 @@ class ApiService {
         }
         try {
             console.log('[ApiService] Inicializando conexão com Urutau API...');
-            const response = await fetch(`${BASE_URL}/info`, { headers: this.headers });
-            const data = await response.json();
+            const data = await this._fetchWithTimeout(`${BASE_URL}/info`, { headers: this.headers });
 
             if (data.success) {
                 this.tenantId = data.data.tenant_id;
@@ -33,7 +53,6 @@ class ApiService {
                 console.log(`[ApiService] Tenant ID conectado: ${this.tenantId}`);
                 
                 if (sucursales && sucursales.length > 0) {
-                    // Try to use the principal first, or just the first one
                     const mainBranch = sucursales.find(s => s.is_principal) || sucursales[0];
                     this.branchId = mainBranch.id;
                     this.headers["X-Branch-ID"] = String(this.branchId);
@@ -43,20 +62,19 @@ class ApiService {
                 }
             } else {
                 console.error('[ApiService] ERRO na inicialização:', data.error);
+                throw new Error("Init API Error: " + data.error);
             }
         } catch (error) {
-            console.error('[ApiService] Erro crítico de rede ao iniciar conexão com a API:', error);
+            console.error('[ApiService] Erro crítico de rede ao iniciar conexão com a API:', error.message);
+            // Non-fatal, let the bot try again later
         }
     }
 
     async listarProfissionaisDisponiveis(dateStr) {
         if (!this.branchId) return [];
         try {
-            const response = await fetch(`${BASE_URL}/sucursales/${this.branchId}/empleados`, { headers: this.headers });
-            const jsonData = await response.json();
-            
+            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/sucursales/${this.branchId}/empleados`, { headers: this.headers });
             if (jsonData.success && jsonData.data && jsonData.data.empleados) {
-                // Return mapping matching the bot's expectations { id, name }
                 return jsonData.data.empleados.map(e => ({
                     id: e.id,
                     name: e.nombre_completo || `${e.nombres} ${e.apellidos}`
@@ -64,18 +82,14 @@ class ApiService {
             }
             return [];
         } catch (error) {
-            console.error('[ApiService] Erro ao buscar empregados:', error);
-            return [];
+            console.error('[ApiService] Erro ao buscar profissionais:', error.message);
+            throw new Error("API_ERROR");
         }
     }
 
-    // Preparado para uso futuro: Buscar os serviços da empresa
     async listarServicios(empresaId = 1) {
         try {
-            // A rota fornecida é em demo.codeart.com.py mas com a chave de tenant funciona no api.codeart também.
-            const response = await fetch(`${BASE_URL}/servicios?empresa_id=${empresaId}`, { headers: this.headers });
-            const jsonData = await response.json();
-            
+            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/servicios?empresa_id=${empresaId}`, { headers: this.headers });
             if (jsonData.success && jsonData.data && jsonData.data.servicios) {
                 return jsonData.data.servicios.map(s => ({
                     id: s.id,
@@ -86,7 +100,7 @@ class ApiService {
             }
             return [];
         } catch (error) {
-             console.error('[ApiService] Erro ao buscar servicos:', error);
+             console.error('[ApiService] Erro ao buscar serviços:', error.message);
              return [];
         }
     }
@@ -94,12 +108,10 @@ class ApiService {
     async getAvailableSlots(dateStr, employeeId) {
         if (!this.branchId) return [];
         try {
-            // API expects YYYY-MM-DD
             const parsedDate = parse(dateStr.trim(), 'dd/MM/yyyy', new Date());
             if (!isValid(parsedDate)) return [];
             
             const apiDate = format(parsedDate, 'yyyy-MM-dd');
-            
             const params = new URLSearchParams({
                 profesional_id: employeeId,
                 servicio_id: DEFAULT_SERVICIO_ID,
@@ -107,25 +119,21 @@ class ApiService {
                 fecha_hasta: apiDate
             });
 
-            const response = await fetch(`${BASE_URL}/agenda/disponibilidad?${params}`, { headers: this.headers });
-            const jsonData = await response.json();
+            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/disponibilidad?${params}`, { headers: this.headers });
 
             if (jsonData.success && jsonData.data && jsonData.data.disponibilidad && jsonData.data.disponibilidad.length > 0) {
                 const daySlots = jsonData.data.disponibilidad[0].slots;
-                
-                // Need to filter out times that already passed if it's today
                 const isToday = isSameDay(parsedDate, new Date());
                 const currentHour = new Date().getHours() + (new Date().getMinutes() / 60);
 
                 let availableTimes = [];
                 for (const slot of daySlots) {
                     if (slot.disponible) {
-                        const timeStr = slot.hora_inicio.substring(0, 5); // "10:00:00" -> "10:00"
+                        const timeStr = slot.hora_inicio.substring(0, 5);
                         if (isToday) {
                             const [h, m] = timeStr.split(':').map(Number);
                             const slotHourFloat = h + (m / 60);
                             
-                            // Only add if at least in the future
                             if (slotHourFloat > currentHour) {
                                 availableTimes.push(timeStr);
                             }
@@ -138,8 +146,8 @@ class ApiService {
             }
             return [];
         } catch (error) {
-            console.error('[ApiService] Erro ao buscar slots:', error);
-            return [];
+            console.error('[ApiService] Erro ao buscar slots:', error.message);
+            throw new Error("API_ERROR"); // Explícitamente subindo o erro
         }
     }
 
@@ -150,49 +158,41 @@ class ApiService {
             const parsedDate = parse(appointmentData.Data.trim(), 'dd/MM/yyyy', new Date());
             const apiDate = format(parsedDate, 'yyyy-MM-dd');
             
-            // Format phone to proper international if possible
             let phone = appointmentData.Cliente_Telefone;
-            if (!phone.startsWith('+')) {
-                phone = '+' + phone;
-            }
+            if (!phone.startsWith('+')) phone = '+' + phone;
 
-            // Split name into first and last
             const nameParts = appointmentData.Cliente_Nome.split(' ');
             const nombres = nameParts[0] || 'Cliente';
             const apellidos = nameParts.slice(1).join(' ') || '';
 
             const payloadData = {
-                cliente: {
-                    nombres: nombres,
-                    apellidos: apellidos,
-                    telefono: phone
-                },
+                cliente: { nomes: nombres, apellidos: apellidos, telefono: phone },
                 profesional_id: appointmentData.EmployeeId,
                 servicio_id: parseInt(DEFAULT_SERVICIO_ID),
                 fecha: apiDate,
-                hora_inicio: appointmentData.Horario + ":00", // "10:00:00"
-                observaciones: "Agendado via Bot de WhatsApp"
+                hora_inicio: appointmentData.Horario + ":00",
+                observaciones: "Agendado via Bot de WhatsApp (VectorFlow)"
             };
 
-            const response = await fetch(`${BASE_URL}/agenda/reserva`, {
+            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/reserva`, {
                 method: 'POST',
                 headers: this.headers,
                 body: JSON.stringify(payloadData)
             });
 
-            const jsonData = await response.json();
-
-            if (response.status === 201 || jsonData.success) {
+            if (jsonData.success) {
                return { success: true, id_agendamento: jsonData.data.cita_id || jsonData.data.numero_cita };
-            } else if (response.status === 409 || (jsonData.error && jsonData.error.code === 'SLOT_ALREADY_BOOKED')) {
+            } else if (jsonData.error && jsonData.error.code === 'SLOT_ALREADY_BOOKED') {
                 return { success: false, reason: 'taken' };
             } else {
-                 console.error('[ApiService] Erro da API ao adicionar agendamento:', jsonData);
-                 return { success: false, reason: 'error', message: jsonData.error?.message || 'Erro desconhecido' };
+                 return { success: false, reason: 'error', message: jsonData.error?.message };
             }
-
         } catch (error) {
-            console.error('[ApiService] Erro crítico em addAppointment:', error);
+            console.error('[ApiService] Erro em addAppointment:', error.message);
+            // Catch 409 responses which _fetchWithTimeout parses as Error because !res.ok
+            if (error.message.includes('Erro HTTP 409')) {
+                return { success: false, reason: 'taken' };
+            }
             return { success: false, reason: 'error' };
         }
     }
@@ -201,30 +201,19 @@ class ApiService {
         if (!this.branchId) return [];
         try {
             let allAppointments = [];
-            let normPhone = phone;
-            if (normPhone.startsWith('+')) {
-                normPhone = normPhone.substring(1);
-            }
+            let normPhone = phone.startsWith('+') ? phone.substring(1) : phone;
 
-            // Buscar os proximos 14 dias
             for(let i = 0; i < 14; i++) {
                 const checkDate = addDays(new Date(), i);
                 const apiDate = format(checkDate, 'yyyy-MM-dd');
                 
-                const params = new URLSearchParams({ 
-                    fecha: apiDate,
-                    page_size: '50'
-                });
-
-                const response = await fetch(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers });
-                const jsonData = await response.json();
+                const params = new URLSearchParams({ fecha: apiDate, page_size: '50' });
+                // Note: might be slow sequentially, but safe
+                const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers });
                 
                 if (jsonData.success && jsonData.data && jsonData.data.citas) {
                      for (const cita of jsonData.data.citas) {
-                         // Ignorar canceladas
                          if (cita.estado === 'cancelada') continue;
-
-                         // Match phone
                          let cPhone = cita.cliente.telefono || "";
                          if (cPhone.includes(normPhone) || normPhone.includes(cPhone.replace('+',''))) {
                              const parsedDate = parse(jsonData.data.fecha, 'yyyy-MM-dd', new Date());
@@ -240,42 +229,30 @@ class ApiService {
                      }
                 }
             }
-            
             return allAppointments;
         } catch(error) {
-             console.error('[ApiService] Erro em listarMinhasCitas:', error);
-             return [];
+             console.error('[ApiService] Erro em listarMinhasCitas:', error.message);
+             throw new Error("API_ERROR");
         }
     }
 
     async cancelarCita(phone, dateStr, timeStr) {
-        // Obter as citas para achar o ID
-        const minhasCitas = await this.listarMinhasCitas(phone);
-        const citaParaCancelar = minhasCitas.find(c => c.data === dateStr && c.horario === timeStr);
-
-        if (!citaParaCancelar || !citaParaCancelar.id_agendamento) {
-            console.error('[ApiService] Cita não encontrada para cancelamento ou sem ID.', { dateStr, timeStr, phone });
-            return false;
-        }
-
         try {
-            // Tentando cancelar pelo endpoint de WhatsApp conforme a guia (FAQ 8.3)
-            // POST ou DELETE dependendo da API. A guia diz: /api/whatsapp/agendamentos/{id} (Geralmente é DELETE)
-            const response = await fetch(`${BASE_URL.replace('/v1', '/whatsapp')}/agendamentos/${citaParaCancelar.id_agendamento}`, {
+            const minhasCitas = await this.listarMinhasCitas(phone);
+            const citaParaCancelar = minhasCitas.find(c => c.data === dateStr && c.horario === timeStr);
+
+            if (!citaParaCancelar || !citaParaCancelar.id_agendamento) {
+                return false;
+            }
+
+            // Using DELETE on the whatsapp specific endpoint
+            await this._fetchWithTimeout(`${BASE_URL.replace('/v1', '/whatsapp')}/agendamentos/${citaParaCancelar.id_agendamento}`, {
                 method: 'DELETE',
                 headers: this.headers
             });
-
-            if (response.ok) {
-                console.log(`[ApiService] Cita ${citaParaCancelar.id_agendamento} cancelada com sucesso.`);
-                return true;
-            } else {
-                const data = await response.json();
-                console.error('[ApiService] Erro ao tentar cancelar cita na API:', data);
-                return false;
-            }
+            return true;
         } catch (error) {
-             console.error('[ApiService] Erro crítico ao cancelar cita:', error);
+             console.error('[ApiService] Erro crítico ao cancelar cita:', error.message);
              return false;
         }
     }

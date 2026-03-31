@@ -2,8 +2,8 @@ import requests
 from datetime import datetime, timedelta
 
 # Configuração da API (Hardcodeada para teste independente)
-BASE_URL = "https://api.codeart.com.py/api/v1"
-API_KEY = "ak_tenant_Bb1bNroKe3DcWkKTPC4XCX6FAByn62IH"
+BASE_URL = "https://studioferreira.codeart.com.py/api/v1"
+API_KEY = "ak_live_tenant_LFFF2hhbs08q46Ox3vgtjNCLoNSVu2zw"
 SERVICIO_ID = 1  # ID de serviço ajustável (1 é o padrão)
 
 def testar_disponibilidade():
@@ -55,7 +55,17 @@ def testar_disponibilidade():
         print("Nenhum profissional encontrado na sucursal.")
         return
 
-    profissional = empleados[0]
+    profissional = None
+    for e in empleados:
+        nome_completo = e.get("nombre_completo", f"{e.get('nombres')} {e.get('apellidos')}")
+        if "vitor" in nome_completo.lower():
+            profissional = e
+            break
+
+    if not profissional:
+        print("⚠️ Profissional 'Vitor' NÃO ENCONTRADO na sucursal. Usando o primeiro da lista como fallback.")
+        profissional = empleados[0]
+
     prof_id = profissional["id"]
     prof_nome = profissional.get("nombre_completo", f"{profissional.get('nombres')} {profissional.get('apellidos')}")
     print(f"✅ Profissional selecionado: {prof_nome} (ID: {prof_id})")
