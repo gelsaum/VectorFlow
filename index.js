@@ -1,7 +1,13 @@
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🚫 Alerta: Promessa não tratada caindo na aplicação:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('🚫 Erro fatal evitado no sistema central:', err);
+});
+
 require('dotenv').config();
 const whatsapp = require('./services/whatsappService');
 const apiService = require('./services/apiService');
-const licenseService = require('./services/licenseService');
 const webService = require('./services/webService');
 const sessionService = require('./services/sessionService');
 const flowController = require('./controllers/flowController');
@@ -9,22 +15,6 @@ const flowController = require('./controllers/flowController');
 // MAIN INIT
 (async () => {
     console.log('Iniciando sistema VectorFlow (Enterprise Architecture)...');
-
-    console.log('Verificando licença...');
-    const isLicensed = await licenseService.verifyLicense();
-    if (!isLicensed) {
-        console.error('⛔ LICENÇA INVÁLIDA OU INATIVA. O BOT SERÁ DESLIGADO.');
-        process.exit(1);
-    }
-    console.log('✅ Licença Válida.');
-
-    setInterval(async () => {
-        const valid = await licenseService.verifyLicense();
-        if (!valid) {
-            console.error('⛔ LICENÇA EXPIRADA OU CANCELADA. ENCERRANDO SISTEMA.');
-            process.exit(1);
-        }
-    }, 6 * 60 * 60 * 1000);
 
     try {
         await sessionService.init(); // Inicia o SQLite

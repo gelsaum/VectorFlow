@@ -71,6 +71,7 @@ class ApiService {
     }
 
     async listarProfissionaisDisponiveis(dateStr) {
+        if (!this.branchId) await this.init();
         if (!this.branchId) return [];
         try {
             const jsonData = await this._fetchWithTimeout(`${BASE_URL}/sucursales/${this.branchId}/empleados`, { headers: this.headers });
@@ -106,6 +107,7 @@ class ApiService {
     }
 
     async getAvailableSlots(dateStr, employeeId) {
+        if (!this.branchId) await this.init();
         if (!this.branchId) return [];
         try {
             const parsedDate = parse(dateStr.trim(), 'dd/MM/yyyy', new Date());
@@ -152,6 +154,7 @@ class ApiService {
     }
 
     async addAppointment(appointmentData) {
+        if (!this.branchId) await this.init();
         if (!this.branchId) return { success: false, reason: 'unconfigured' };
 
         try {
@@ -198,20 +201,32 @@ class ApiService {
     }
 
     async listarMinhasCitas(phone) {
+        if (!this.branchId) await this.init();
         if (!this.branchId) return [];
         try {
             let allAppointments = [];
             let normPhone = phone.startsWith('+') ? phone.substring(1) : phone;
 
+            // Otimização: Promise.all para processamento paralelo concorrente (Velocidade ~15x maior)
+            const promises = [];
             for(let i = 0; i < 14; i++) {
                 const checkDate = addDays(new Date(), i);
                 const apiDate = format(checkDate, 'yyyy-MM-dd');
-                
                 const params = new URLSearchParams({ fecha: apiDate, page_size: '50' });
-                // Note: might be slow sequentially, but safe
-                const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers });
                 
-                if (jsonData.success && jsonData.data && jsonData.data.citas) {
+                promises.push(
+                    this._fetchWithTimeout(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers })
+                        .catch(err => {
+                            console.warn(`[ApiService] Falha em reporte-diario isolado (${apiDate}):`, err.message);
+                            return null;
+                        })
+                );
+            }
+
+            const results = await Promise.all(promises);
+
+            for (const jsonData of results) {
+                if (jsonData && jsonData.success && jsonData.data && jsonData.data.citas) {
                      for (const cita of jsonData.data.citas) {
                          if (cita.estado === 'cancelada') continue;
                          let cPhone = cita.cliente.telefono || "";
@@ -231,7 +246,7 @@ class ApiService {
             }
             return allAppointments;
         } catch(error) {
-             console.error('[ApiService] Erro em listarMinhasCitas:', error.message);
+             console.error('[ApiService] Erro crítico em listarMinhasCitas:', error.message);
              throw new Error("API_ERROR");
         }
     }

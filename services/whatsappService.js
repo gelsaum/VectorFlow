@@ -5,7 +5,7 @@ class WhatsappService {
     constructor() {
         this.client = true; // Compatibility flag
         this.handler = null;
-        this.apiUrl = process.env.EVOLUTION_API_URL;
+        this.apiUrl = process.env.EVOLUTION_API_URL ? process.env.EVOLUTION_API_URL.replace(/\/$/, '') : '';
         this.apiKey = process.env.EVOLUTION_API_KEY;
         this.instanceName = process.env.EVOLUTION_INSTANCE_NAME;
     }
