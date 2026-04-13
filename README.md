@@ -1,13 +1,10 @@
-# WhatsApp Scheduler Bot
+# VectorFlow Bot
 
-This bot automates appointment scheduling using WhatsApp and Google Sheets.
+This bot automates appointment scheduling using the Urutau API, Evolution API, and SQLite for session management.
 
 ## Prerequisites
 
 - Node.js installed
-- Google Chrome installed
-- `credentials.json` for Google Sheets API
-- Valid license (currently bypassed for dev)
 
 ## How to Run
 

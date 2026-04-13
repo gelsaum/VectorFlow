@@ -32,6 +32,11 @@ class SessionService {
                     )
                 `);
                 console.log('[SessionService] Base de dados SQLite conectada e modo WAL ativo.');
+
+                // Limpeza inicial + periódica a cada 6 horas
+                await this.cleanupOldSessions();
+                this._cleanupInterval = setInterval(() => this.cleanupOldSessions(), 6 * 60 * 60 * 1000);
+
             } catch (error) {
                 console.error('[SessionService] Erro crítico ao conectar com SQLite:', error);
                 this.initPromise = null; // Permite tentar reconectar 
@@ -40,6 +45,20 @@ class SessionService {
         })();
 
         return this.initPromise;
+    }
+
+    async cleanupOldSessions() {
+        if (!this.db) return;
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 horas
+        const cutoff = Date.now() - MAX_AGE_MS;
+        try {
+            const result = await this.db.run('DELETE FROM UserSessions WHERE lastActivity < ?', cutoff);
+            if (result.changes > 0) {
+                console.log(`[SessionService] 🧹 Limpeza: ${result.changes} sessão(ões) antiga(s) removida(s).`);
+            }
+        } catch (error) {
+            console.error('[SessionService] Erro na limpeza de sessões:', error.message);
+        }
     }
 
     async getSession(from) {

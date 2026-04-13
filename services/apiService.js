@@ -49,6 +49,7 @@ class ApiService {
 
             if (data.success) {
                 this.tenantId = data.data.tenant_id;
+                this.headers["X-Tenant-ID"] = this.tenantId;
                 const sucursales = data.data.sucursales;
                 console.log(`[ApiService] Tenant ID conectado: ${this.tenantId}`);
                 
@@ -126,24 +127,32 @@ class ApiService {
             if (jsonData.success && jsonData.data && jsonData.data.disponibilidad && jsonData.data.disponibilidad.length > 0) {
                 const daySlots = jsonData.data.disponibilidad[0].slots;
                 const isToday = isSameDay(parsedDate, new Date());
-                const currentHour = new Date().getHours() + (new Date().getMinutes() / 60);
 
                 let availableTimes = [];
+                let lastAddedMinutes = -100; // Inicializa com valor baixo para permitir o primeiro horário
+
                 for (const slot of daySlots) {
                     if (slot.disponible) {
                         const timeStr = slot.hora_inicio.substring(0, 5);
+                        const [h, m] = timeStr.split(':').map(Number);
+                        const currentSlotMinutes = (h * 60) + m;
+
                         if (isToday) {
-                            const [h, m] = timeStr.split(':').map(Number);
+                            const now = new Date();
+                            const currentHourFloat = now.getHours() + (now.getMinutes() / 60);
                             const slotHourFloat = h + (m / 60);
                             
-                            if (slotHourFloat > currentHour) {
-                                availableTimes.push(timeStr);
-                            }
-                        } else {
+                            if (slotHourFloat <= currentHourFloat) continue;
+                        }
+
+                        // Filtro de 40 minutos
+                        if (currentSlotMinutes >= lastAddedMinutes + 40) {
                             availableTimes.push(timeStr);
+                            lastAddedMinutes = currentSlotMinutes;
                         }
                     }
                 }
+                console.log(`[ApiService] Slots originais: ${daySlots.length} | Após filtro de 40min: ${availableTimes.length}`);
                 return availableTimes;
             }
             return [];
@@ -166,31 +175,59 @@ class ApiService {
 
             const nameParts = appointmentData.Cliente_Nome.split(' ');
             const nombres = nameParts[0] || 'Cliente';
-            const apellidos = nameParts.slice(1).join(' ') || '';
+            const apellidos = nameParts.slice(1).join(' ') || 'Cliente';
 
+            // Enviar APENAS campos obrigatórios + telefono (para buscar cliente existente)
+            // Campos opcionais com valor null causam erro 500 no Django do Urutau
             const payloadData = {
-                cliente: { nomes: nombres, apellidos: apellidos, telefono: phone },
-                profesional_id: appointmentData.EmployeeId,
-                servicio_id: parseInt(DEFAULT_SERVICIO_ID),
+                cliente: { 
+                    nombres: nombres, 
+                    apellidos: apellidos,
+                    telefono: phone
+                },
+                profesional_id: parseInt(appointmentData.EmployeeId),
+                servicio_id: parseInt(process.env.DEFAULT_SERVICIO_ID || 1),
                 fecha: apiDate,
                 hora_inicio: appointmentData.Horario + ":00",
                 observaciones: "Agendado via Bot de WhatsApp (VectorFlow)"
             };
 
-            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/reserva`, {
+            console.log('\n--- TENTANDO SALVAR AGENDAMENTO ---');
+            console.log('Payload:', JSON.stringify(payloadData, null, 2));
+
+            // Fazer request sem usar _fetchWithTimeout para poder ler o body mesmo com erro
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
+            const response = await fetch(`${BASE_URL}/agenda/reserva`, {
                 method: 'POST',
                 headers: this.headers,
-                body: JSON.stringify(payloadData)
+                body: JSON.stringify(payloadData),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
+
+            const responseText = await response.text();
+            console.log(`--- RESPOSTA DA API (HTTP ${response.status}) ---`);
+            console.log(responseText);
+            console.log('-------------------------\n');
+
+            if (!response.ok) {
+                console.error(`❌ ERRO HTTP ${response.status} ao salvar agendamento`);
+                return { success: false, reason: 'error', message: `Erro HTTP ${response.status}` };
+            }
+
+            const jsonData = JSON.parse(responseText);
 
             if (jsonData.success) {
                return { success: true, id_agendamento: jsonData.data.cita_id || jsonData.data.numero_cita };
             } else if (jsonData.error && jsonData.error.code === 'SLOT_ALREADY_BOOKED') {
                 return { success: false, reason: 'taken' };
             } else {
+                 console.error('❌ ERRO NO URUTAU:', jsonData.error?.message || 'Erro desconhecido');
                  return { success: false, reason: 'error', message: jsonData.error?.message };
             }
         } catch (error) {
+            clearTimeout(timeoutId);
             console.error('[ApiService] Erro em addAppointment:', error.message);
             // Catch 409 responses which _fetchWithTimeout parses as Error because !res.ok
             if (error.message.includes('Erro HTTP 409')) {
@@ -204,49 +241,40 @@ class ApiService {
         if (!this.branchId) await this.init();
         if (!this.branchId) return [];
         try {
-            let allAppointments = [];
-            let normPhone = phone.startsWith('+') ? phone.substring(1) : phone;
+            let normPhone = phone.startsWith('+') ? phone : '+' + phone;
 
-            // Otimização: Promise.all para processamento paralelo concorrente (Velocidade ~15x maior)
-            const promises = [];
-            for(let i = 0; i < 14; i++) {
-                const checkDate = addDays(new Date(), i);
-                const apiDate = format(checkDate, 'yyyy-MM-dd');
-                const params = new URLSearchParams({ fecha: apiDate, page_size: '50' });
-                
-                promises.push(
-                    this._fetchWithTimeout(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers })
-                        .catch(err => {
-                            console.warn(`[ApiService] Falha em reporte-diario isolado (${apiDate}):`, err.message);
-                            return null;
-                        })
-                );
-            }
+            const params = new URLSearchParams({
+                telefono: normPhone,
+                estado: 'activas'
+            });
 
-            const results = await Promise.all(promises);
+            console.log(`[ApiService] Buscando citas para telefone: ${normPhone}`);
 
-            for (const jsonData of results) {
-                if (jsonData && jsonData.success && jsonData.data && jsonData.data.citas) {
-                     for (const cita of jsonData.data.citas) {
-                         if (cita.estado === 'cancelada') continue;
-                         let cPhone = cita.cliente.telefono || "";
-                         if (cPhone.includes(normPhone) || normPhone.includes(cPhone.replace('+',''))) {
-                             const parsedDate = parse(jsonData.data.fecha, 'yyyy-MM-dd', new Date());
-                             allAppointments.push({
-                                 data: format(parsedDate, 'dd/MM/yyyy'),
-                                 horario: cita.hora_inicio.substring(0, 5),
-                                 cliente_nome: `${cita.cliente.nombres} ${cita.cliente.apellidos}`.trim(),
-                                 funcionario_nome: cita.profesional.nombre,
-                                 status: cita.estado,
-                                 id_agendamento: cita.cita_id || cita.numero_cita
-                             });
-                         }
-                     }
+            const jsonData = await this._fetchWithTimeout(
+                `${BASE_URL}/agenda/reservas?${params}`, 
+                { headers: this.headers }
+            );
+
+            if (jsonData.success && jsonData.data && jsonData.data.citas) {
+                const allAppointments = [];
+                for (const cita of jsonData.data.citas) {
+                    if (cita.estado === 'cancelada') continue;
+                    allAppointments.push({
+                        data: cita.fecha,
+                        horario: cita.hora_inicio.substring(0, 5),
+                        cliente_nome: `${jsonData.data.cliente?.nombres || ''} ${jsonData.data.cliente?.apellidos || ''}`.trim(),
+                        funcionario_nome: cita.profesional?.nombre || 'N/A',
+                        status: cita.estado,
+                        id_agendamento: cita.cita_id,
+                        cancelable: cita.cancelable
+                    });
                 }
+                console.log(`[ApiService] Encontradas ${allAppointments.length} cita(s) ativa(s).`);
+                return allAppointments;
             }
-            return allAppointments;
+            return [];
         } catch(error) {
-             console.error('[ApiService] Erro crítico em listarMinhasCitas:', error.message);
+             console.error('[ApiService] Erro ao listar citas:', error.message);
              throw new Error("API_ERROR");
         }
     }
@@ -257,17 +285,31 @@ class ApiService {
             const citaParaCancelar = minhasCitas.find(c => c.data === dateStr && c.horario === timeStr);
 
             if (!citaParaCancelar || !citaParaCancelar.id_agendamento) {
+                console.error('[ApiService] Cita não encontrada para cancelar:', dateStr, timeStr);
                 return false;
             }
 
-            // Using DELETE on the whatsapp specific endpoint
-            await this._fetchWithTimeout(`${BASE_URL.replace('/v1', '/whatsapp')}/agendamentos/${citaParaCancelar.id_agendamento}`, {
+            if (citaParaCancelar.cancelable === false) {
+                console.warn('[ApiService] Cita não é cancelável:', citaParaCancelar.id_agendamento);
+                return false;
+            }
+
+            console.log(`[ApiService] Cancelando cita ID: ${citaParaCancelar.id_agendamento}...`);
+
+            const response = await this._fetchWithTimeout(`${BASE_URL}/agenda/reserva/${citaParaCancelar.id_agendamento}`, {
                 method: 'DELETE',
-                headers: this.headers
+                headers: this.headers,
+                body: JSON.stringify({ motivo: "Cancelado pelo cliente via WhatsApp Bot" })
             });
-            return true;
+
+            if (response.success) {
+                console.log(`[ApiService] ✅ Cita ${citaParaCancelar.id_agendamento} cancelada com sucesso.`);
+                return true;
+            }
+            console.error('[ApiService] Resposta inesperada ao cancelar:', response);
+            return false;
         } catch (error) {
-             console.error('[ApiService] Erro crítico ao cancelar cita:', error.message);
+             console.error('[ApiService] Erro ao cancelar cita:', error.message);
              return false;
         }
     }

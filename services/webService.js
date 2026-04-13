@@ -24,9 +24,8 @@ class WebService {
             // Respondemos rápido para evitar timeouts en Evolution API
             res.status(200).send('OK');
 
-            console.log('\n==================================');
-            console.log('📥 WEBHOOK RECIBIDO DE EVOLUTION');
-            console.log(JSON.stringify(req.body, null, 2));
+            console.log('==================================');
+            console.log(`📥 WEBHOOK: ${req.body.event || 'desconhecido'} | ${req.body.data?.key?.remoteJid || ''}`);
             console.log('==================================\n');
 
             try {

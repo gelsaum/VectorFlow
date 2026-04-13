@@ -90,6 +90,7 @@ async function processDateChoice(from, session, dateStr) {
         await whatsapp.sendText(from, msg);
         session.step = STEPS.SELECT_EMPLOYEE;
     } catch (error) {
+        console.error('[FlowController] Erro ao buscar profissionais:', error.message);
         await whatsapp.sendText(from, msgs.API_ERROR);
         await sendWelcome(from, session);
     }
@@ -181,6 +182,7 @@ class FlowController {
                             await whatsapp.sendText(from, msg);
                             session.step = STEPS.SELECT_TIME;
                         } catch (error) {
+                            console.error('[FlowController] Erro ao buscar horários:', error.message);
                             await whatsapp.sendText(from, msgs.API_ERROR);
                             await sendWelcome(from, session);
                         }
@@ -355,13 +357,21 @@ class FlowController {
                 session.data.myAppointments = apps;
                 let msg = '*Tus Citas/Horarios Futuras:*\n\n';
                 apps.forEach((app, index) => {
-                    msg += `${index + 1}. *${app.data}* a las *${app.horario}*\n   Con: ${app.funcionario_nome} (${app.status}) \n\n`;
+                    // Formatar data yyyy-MM-dd para dd/MM/yyyy
+                    let dataFormatada = app.data;
+                    if (app.data && app.data.includes('-')) {
+                        const [y, m, d] = app.data.split('-');
+                        dataFormatada = `${d}/${m}/${y}`;
+                    }
+                    const cancelIcon = app.cancelable !== false ? '❌' : '🔒';
+                    msg += `${index + 1}. ${cancelIcon} *${dataFormatada}* a las *${app.horario}*\n   Con: ${app.funcionario_nome} (${app.status}) \n\n`;
                 });
-                msg += '❌ Cancelar cita (envía el número)\n🔙 0 para volver';
+                msg += '❌ Cancelar cita (envía el número)\n🔒 = No cancelable\n🔙 0 para volver';
                 await whatsapp.sendText(from, msg);
                 session.step = STEPS.MANAGE_APPOINTMENTS;
             }
         } catch (err) {
+            console.error('[FlowController] Erro ao listar citas:', err.message);
             await whatsapp.sendText(from, msgs.API_ERROR);
             await sendWelcome(from, session);
         }
