@@ -69,7 +69,17 @@ class WhatsappService {
                 body = data.message?.text || '';
             }
 
-            if (!body) return; // Si no es un mensaje de texto, ignorarlo
+            if (!body) {
+                const from = data.key.remoteJid;
+                const isGroupMsg = from.includes('@g.us');
+                if (!isGroupMsg && data.message) {
+                    const hasMedia = data.message.audioMessage || data.message.imageMessage || data.message.videoMessage || data.message.documentMessage || data.message.stickerMessage || data.message.locationMessage || data.message.contactMessage;
+                    if (hasMedia) {
+                        this.sendText(from, require('../constants/messages').ONLY_TEXT);
+                    }
+                }
+                return; // Si no es un mensaje de texto, ignorarlo
+            }
             
             const from = data.key.remoteJid;
             const isGroupMsg = from.includes('@g.us');

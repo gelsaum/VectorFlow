@@ -1,0 +1,56 @@
+Flujo de cancelación (sin cita_id guardado)
+Paso 1 — Buscar las reservas activas del cliente por teléfono
+
+GET /api/v1/agenda/reservas?telefono=+595971450246
+X-Tenant-Key: ak_live_...
+X-Tenant-ID: studioferreira
+X-Branch-ID: 1
+Respuesta:
+
+{
+  "success": true,
+  "data": {
+    "cliente": { "id": 7, "nombres": "Teste", "apellidos": "Bot" },
+    "total": 2,
+    "citas": [
+      {
+        "cita_id": 42,
+        "numero_cita": "CITA-2026-000042",
+        "estado": "pendiente",
+        "cancelable": true,
+        "profesional": { "id": 1, "nombre": "María López" },
+        "servicio": { "id": 1, "nombre": "Corte de cabello", "duracion_minutos": 30 },
+        "fecha": "2026-04-13",
+        "hora_inicio": "07:00:00",
+        "hora_fin": "07:30:00"
+      },
+      {
+        "cita_id": 38,
+        "estado": "realizada",
+        "cancelable": false,
+        ...
+      }
+    ]
+  }
+}
+El campo cancelable: true/false ya le dice al bot cuáles puede ofrecer para cancelar, sin necesidad de lógica extra.
+
+Paso 2 — Mostrar al usuario y confirmar
+
+El bot presenta las citas con cancelable: true y pregunta cuál desea cancelar.
+
+Paso 3 — Cancelar
+
+DELETE /api/v1/agenda/reservas/42
+X-Tenant-Key: ak_live_...
+X-Branch-ID: 1
+{ "motivo": "No puedo ir ese día" }
+Parámetros opcionales de la búsqueda:
+
+Parámetro	Por defecto	Descripción
+telefono	—	Número del cliente (más útil para bots)
+email	—	Email del cliente
+cliente_id	—	ID interno
+estado	activas	activas, pendiente, confirmada, realizada, cancelada, todos
+fecha_desde	hoy	Solo reservas desde esta fecha
+fecha_hasta	+60 días	Solo reservas hasta esta fecha

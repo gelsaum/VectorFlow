@@ -1,0 +1,146 @@
+============================================================
+  RELATÓRIO DE ERRO - POST /agenda/reserva
+  Data: 2026-04-12 10:06 (hora local Asunción)
+============================================================
+
+RESUMO:
+O endpoint POST /api/v1/agenda/reserva retorna HTTP 500 (Server Error)
+para qualquer payload enviado. Todos os outros endpoints funcionam
+normalmente (info, disponibilidad, empleados, servicios, configuracion).
+
+------------------------------------------------------------
+DADOS DE CONEXÃO
+------------------------------------------------------------
+Tenant ID:  studioferreira
+Branch ID:  1
+API Key:    ak_live_tenant_LFFF2hhbs08q46Ox3vgtjNCLoNSVu2zw
+Base URL:   https://studioferreira.codeart.com.py/api/v1
+
+------------------------------------------------------------
+ÚLTIMA PETIÇÃO (REQUEST)
+------------------------------------------------------------
+
+URL:
+  POST https://studioferreira.codeart.com.py/api/v1/agenda/reserva
+
+HEADERS:
+  X-Tenant-Key: ak_live_tenant_LFFF2hhbs08q46Ox3vgtjNCLoNSVu2zw
+  X-Tenant-ID: studioferreira
+  X-Branch-ID: 1
+  Content-Type: application/json
+
+BODY (PAYLOAD):
+{
+  "cliente": {
+    "nombres": "Teste",
+    "apellidos": "Bot",
+    "telefono": "+595971450246"
+  },
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "07:00:00",
+  "observaciones": "Teste direto do script"
+}
+
+RESPOSTA (RESPONSE):
+  HTTP 500
+  Server Error (500) — sem mensagem de erro detalhada
+
+------------------------------------------------------------
+HISTÓRICO DE TENTATIVAS (Todas retornaram 500)
+------------------------------------------------------------
+
+TENTATIVA 1 — Payload mínimo (apenas campos obrigatórios)
+{
+  "cliente": {
+    "nombres": "Teste",
+    "apellidos": "Bot"
+  },
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "07:00:00"
+}
+Resultado: HTTP 500
+
+TENTATIVA 2 — Com todos os campos opcionais (strings vazias)
+{
+  "cliente": {
+    "nombres": "Gek",
+    "apellidos": ".",
+    "telefono": "+595971450246",
+    "email": "",
+    "tipo_documento": "CI",
+    "numero_documento": ""
+  },
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "07:00:00",
+  "recurso_fisico_id": null,
+  "observaciones": "Agendado via Bot de WhatsApp (VectorFlow)"
+}
+Resultado: HTTP 500
+
+TENTATIVA 3 — Com campos opcionais como null
+{
+  "cliente": {
+    "nombres": "Gek",
+    "apellidos": ".",
+    "telefono": "+595971450246",
+    "email": null,
+    "tipo_documento": "CI",
+    "numero_documento": null
+  },
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "07:00:00",
+  "recurso_fisico_id": null,
+  "observaciones": "Agendado via Bot de WhatsApp (VectorFlow)"
+}
+Resultado: HTTP 500
+
+TENTATIVA 4 — Com documento RUC do "Cliente Ocasional"
+{
+  "cliente": {
+    "nombres": "Cliente",
+    "apellidos": "ocasional",
+    "tipo_documento": "RUC",
+    "numero_documento": "44444401-7"
+  },
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "09:00:00"
+}
+Resultado: HTTP 500
+
+TENTATIVA 5 — Com "cliente_id" em vez de objeto "cliente"
+{
+  "cliente_id": 1,
+  "profesional_id": 1,
+  "servicio_id": 1,
+  "fecha": "2026-04-13",
+  "hora_inicio": "09:30:00"
+}
+Resultado: HTTP 400
+Mensagem: {"error": "MISSING_FIELDS", "message": "cliente, profesional_id, servicio_id, fecha y hora_inicio son requeridos"}
+
+------------------------------------------------------------
+ENDPOINTS QUE FUNCIONAM NORMALMENTE
+------------------------------------------------------------
+GET  /api/v1/info                          -> 200 OK
+GET  /api/v1/sucursal/configuracion        -> 200 OK
+GET  /api/v1/sucursales/1/empleados        -> 200 OK
+GET  /api/v1/servicios?empresa_id=1        -> 200 OK
+GET  /api/v1/agenda/disponibilidad         -> 200 OK
+POST /api/v1/agenda/reserva                -> 500 ERROR
+
+------------------------------------------------------------
+OBSERVAÇÃO IMPORTANTE
+------------------------------------------------------------
+O slot 07:00:00 para profesional_id=1 em 2026-04-13 aparece como
+disponible=true no endpoint de disponibilidad. Mesmo assim, a
+reserva retorna 500.

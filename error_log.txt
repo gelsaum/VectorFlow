@@ -1,0 +1,11 @@
+Error: Archivo credentials.json no encontrado
+    at SheetService.init (c:\Users\Gelsu Pika Das Galax\Documents\Vector Flow\bot vitor viajem\Chat bot - Victor\services\sheetService.js:86:50)
+    at c:\Users\Gelsu Pika Das Galax\Documents\Vector Flow\bot vitor viajem\Chat bot - Victor\index.js:601:28
+    at Object.<anonymous> (c:\Users\Gelsu Pika Das Galax\Documents\Vector Flow\bot vitor viajem\Chat bot - Victor\index.js:608:3)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at Object.<anonymous> (C:\Users\Gelsu Pika Das Galax\AppData\Roaming\npm\node_modules\pm2\lib\ProcessContainerFork.js:33:23)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)

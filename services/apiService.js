@@ -145,6 +145,10 @@ class ApiService {
                             if (slotHourFloat <= currentHourFloat) continue;
                         }
 
+                        // Filtro de Horário de Almoço: Bloquear entre 11:31 e 13:14
+                        // 11:30 = 690 min | 13:15 = 795 min
+                        if (currentSlotMinutes > 690 && currentSlotMinutes < 795) continue;
+
                         // Filtro de 40 minutos
                         if (currentSlotMinutes >= lastAddedMinutes + 40) {
                             availableTimes.push(timeStr);
