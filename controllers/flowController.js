@@ -4,6 +4,7 @@ const apiService = require('../services/apiService');
 const msgs = require('../constants/messages');
 const { format, addDays, parse, isValid } = require('date-fns');
 const { es } = require('date-fns/locale');
+const reminderService = require('../services/reminderService');
 
 const STEPS = {
     START: 'START',
@@ -16,7 +17,8 @@ const STEPS = {
     RETRY_AGENDAMENTO: 'RETRY_AGENDAMENTO',
     MANAGE_APPOINTMENTS: 'MANAGE_APPOINTMENTS',
     POST_APPOINTMENT_ACTION: 'POST_APPOINTMENT_ACTION',
-    ASK_MANUAL_DATE: 'ASK_MANUAL_DATE'
+    ASK_MANUAL_DATE: 'ASK_MANUAL_DATE',
+    AWAITING_REMINDER_REPLY: 'AWAITING_REMINDER_REPLY'
 };
 
 function normalizeText(text) {
@@ -262,6 +264,34 @@ class FlowController {
                     }
                     break;
 
+                case STEPS.AWAITING_REMINDER_REPLY:
+                    if (['1', 'si', 's', 'sim', 'yes', 'confirmar'].includes(body)) {
+                        await whatsapp.sendText(from, msgs.REMINDER_CONFIRMED);
+                        await sendWelcome(from, session);
+                    } else if (['2', 'no', 'nao', 'n', 'cancelar'].includes(body)) {
+                        await whatsapp.sendText(from, '⏳ Cancelando cita/horario...');
+                        const phone = getCleanPhone(message);
+                        // Data and time might not be immediately available, but API allows canceling by ID in our backend? 
+                        // Wait, cancelarCita needs date and time. Let's check apiService.js.
+                        // apiService.cancelarCita(phone, dateStr, timeStr) finds by phone, date and time.
+                        // Wait, in AWAITING_REMINDER_REPLY we have session.data.cancelCitaId. We can just hit the API to delete it by ID directly!
+                        const response = await apiService._fetchWithTimeout(`${process.env.URUTAU_API_URL || "https://studioferreira.codeart.com.py/api/v1"}/agenda/reserva/${session.data.cancelCitaId}`, {
+                            method: 'DELETE',
+                            headers: apiService.headers,
+                            body: JSON.stringify({ motivo: "Cancelado pelo cliente via Lembrete do Bot" })
+                        });
+                        
+                        if (response && response.success) {
+                            await whatsapp.sendText(from, msgs.REMINDER_CANCELLED);
+                        } else {
+                            await whatsapp.sendText(from, msgs.CANCEL_ERROR);
+                        }
+                        await sendWelcome(from, session);
+                    } else {
+                        await whatsapp.sendText(from, msgs.INVALID_OPTION);
+                    }
+                    break;
+
                 default:
                     await sendWelcome(from, session);
                     break;
@@ -330,6 +360,22 @@ class FlowController {
 
         if (result.success) {
             await whatsapp.sendText(from, msgs.APP_CONFIRMED);
+            
+            // Format session.data.date from dd/MM/yyyy to yyyy-MM-dd
+            try {
+                const parts = session.data.date.split('/');
+                const fechaApi = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                await reminderService.scheduleReminder(
+                    result.id_agendamento, 
+                    getCleanPhone(message), 
+                    fechaApi, 
+                    session.data.time + ':00', 
+                    session.data.employee.name
+                );
+            } catch (e) {
+                console.error('[FlowController] Erro ao agendar reminder local:', e);
+            }
+
             await whatsapp.sendText(from, msgs.POST_APP_ACTIONS);
             session.step = STEPS.POST_APPOINTMENT_ACTION;
         } else {

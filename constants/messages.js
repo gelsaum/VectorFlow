@@ -28,5 +28,7 @@ module.exports = {
     BYE: '¡Gracias por usar nuestro sistema! 👋',
     CONFIRM_INVALID: '⚠️ Opción inválida. Por favor responde *Sí* para confirmar o *No* para cancelar.',
     SHORT_NAME: 'Nombre muy corto. Por favor, escribe tu nombre completo.',
-    ONLY_TEXT: '⚠️ Por favor, envíe solo mensajes de texto. Nuestro asistente no puede escuchar audios ni abrir archivos o imágenes.'
+    ONLY_TEXT: '⚠️ Por favor, envíe solo mensajes de texto. Nuestro asistente no puede escuchar audios ni abrir archivos o imágenes.',
+    REMINDER_CONFIRMED: '✅ ¡Excelente! Te esperamos.',
+    REMINDER_CANCELLED: '✅ Entendido. Tu cita ha sido cancelada con éxito para liberar el espacio. ¡Esperamos verte pronto!'
 };

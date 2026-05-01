@@ -21,7 +21,11 @@ const flowController = require('./controllers/flowController');
         webService.init(); // Inicia Express (Webhook API)
         await apiService.init(); // Conecta Urutau Base HTTP Client
         
-        console.log('✅ Webhook WebService + Urutau API + SQLite Conectados.');
+        // Inicializa o serviço de lembretes (depois dos outros serviços para ter a conexão com a API e BD)
+        const reminderService = require('./services/reminderService');
+        await reminderService.init();
+
+        console.log('✅ Webhook WebService + Urutau API + SQLite + Lembretes Conectados.');
         
         // Pass the controller's isolated handleMessage bound to context
         whatsapp.start(flowController.handleMessage.bind(flowController));

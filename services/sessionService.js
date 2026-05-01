@@ -31,7 +31,18 @@ class SessionService {
                         lastActivity INTEGER
                     )
                 `);
-                console.log('[SessionService] Base de dados SQLite conectada e modo WAL ativo.');
+
+                await this.db.exec(`
+                    CREATE TABLE IF NOT EXISTS Reminders (
+                        id_agendamento TEXT PRIMARY KEY,
+                        phone TEXT,
+                        target_time INTEGER,
+                        hora_inicio TEXT,
+                        profesional_nombre TEXT,
+                        data TEXT
+                    )
+                `);
+                console.log('[SessionService] Base de dados SQLite conectada e tabelas criadas.');
 
                 // Limpeza inicial + periódica a cada 6 horas
                 await this.cleanupOldSessions();
@@ -137,6 +148,38 @@ class SessionService {
             );
         } catch (error) {
             console.error(`[SessionService Error] Falha ao resetar sessão para ${from}:`, error);
+        }
+    }
+
+    // --- REMINDERS METHODS ---
+    async addReminder(id_agendamento, phone, target_time, hora_inicio, profesional_nombre, dataStr) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.run(
+                'INSERT OR REPLACE INTO Reminders (id_agendamento, phone, target_time, hora_inicio, profesional_nombre, data) VALUES (?, ?, ?, ?, ?, ?)',
+                [String(id_agendamento), phone, target_time, hora_inicio, profesional_nombre, dataStr]
+            );
+        } catch (error) {
+            console.error('[SessionService Error] Falha ao salvar reminder:', error);
+        }
+    }
+
+    async getReminders() {
+        if (!this.db) await this.init();
+        try {
+            return await this.db.all('SELECT * FROM Reminders');
+        } catch (error) {
+            console.error('[SessionService Error] Falha ao listar reminders:', error);
+            return [];
+        }
+    }
+
+    async deleteReminder(id_agendamento) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.run('DELETE FROM Reminders WHERE id_agendamento = ?', [String(id_agendamento)]);
+        } catch (error) {
+            console.error('[SessionService Error] Falha ao deletar reminder:', error);
         }
     }
 }

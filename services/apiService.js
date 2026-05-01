@@ -52,7 +52,7 @@ class ApiService {
                 this.headers["X-Tenant-ID"] = this.tenantId;
                 const sucursales = data.data.sucursales;
                 console.log(`[ApiService] Tenant ID conectado: ${this.tenantId}`);
-                
+
                 if (sucursales && sucursales.length > 0) {
                     const mainBranch = sucursales.find(s => s.is_principal) || sucursales[0];
                     this.branchId = mainBranch.id;
@@ -102,8 +102,8 @@ class ApiService {
             }
             return [];
         } catch (error) {
-             console.error('[ApiService] Erro ao buscar serviços:', error.message);
-             return [];
+            console.error('[ApiService] Erro ao buscar serviços:', error.message);
+            return [];
         }
     }
 
@@ -113,7 +113,7 @@ class ApiService {
         try {
             const parsedDate = parse(dateStr.trim(), 'dd/MM/yyyy', new Date());
             if (!isValid(parsedDate)) return [];
-            
+
             const apiDate = format(parsedDate, 'yyyy-MM-dd');
             const params = new URLSearchParams({
                 profesional_id: employeeId,
@@ -141,7 +141,7 @@ class ApiService {
                             const now = new Date();
                             const currentHourFloat = now.getHours() + (now.getMinutes() / 60);
                             const slotHourFloat = h + (m / 60);
-                            
+
                             if (slotHourFloat <= currentHourFloat) continue;
                         }
 
@@ -173,7 +173,7 @@ class ApiService {
         try {
             const parsedDate = parse(appointmentData.Data.trim(), 'dd/MM/yyyy', new Date());
             const apiDate = format(parsedDate, 'yyyy-MM-dd');
-            
+
             let phone = appointmentData.Cliente_Telefone;
             if (!phone.startsWith('+')) phone = '+' + phone;
 
@@ -181,11 +181,13 @@ class ApiService {
             const nombres = nameParts[0] || 'Cliente';
             const apellidos = nameParts.slice(1).join(' ') || 'Cliente';
 
+            const nowStr = format(new Date(), 'dd/MM/yyyy HH:mm');
+
             // Enviar APENAS campos obrigatórios + telefono (para buscar cliente existente)
             // Campos opcionais com valor null causam erro 500 no Django do Urutau
             const payloadData = {
-                cliente: { 
-                    nombres: nombres, 
+                cliente: {
+                    nombres: nombres,
                     apellidos: apellidos,
                     telefono: phone
                 },
@@ -193,7 +195,7 @@ class ApiService {
                 servicio_id: parseInt(process.env.DEFAULT_SERVICIO_ID || 1),
                 fecha: apiDate,
                 hora_inicio: appointmentData.Horario + ":00",
-                observaciones: "Agendado via Bot de WhatsApp (VectorFlow)"
+                observaciones: `Agendado via Bot de WhatsApp | Tel: ${phone} | Realizado em: ${nowStr}`
             };
 
             console.log('\n--- TENTANDO SALVAR AGENDAMENTO ---');
@@ -223,12 +225,12 @@ class ApiService {
             const jsonData = JSON.parse(responseText);
 
             if (jsonData.success) {
-               return { success: true, id_agendamento: jsonData.data.cita_id || jsonData.data.numero_cita };
+                return { success: true, id_agendamento: jsonData.data.cita_id || jsonData.data.numero_cita };
             } else if (jsonData.error && jsonData.error.code === 'SLOT_ALREADY_BOOKED') {
                 return { success: false, reason: 'taken' };
             } else {
-                 console.error('❌ ERRO NO URUTAU:', jsonData.error?.message || 'Erro desconhecido');
-                 return { success: false, reason: 'error', message: jsonData.error?.message };
+                console.error('❌ ERRO NO URUTAU:', jsonData.error?.message || 'Erro desconhecido');
+                return { success: false, reason: 'error', message: jsonData.error?.message };
             }
         } catch (error) {
             clearTimeout(timeoutId);
@@ -255,7 +257,7 @@ class ApiService {
             console.log(`[ApiService] Buscando citas para telefone: ${normPhone}`);
 
             const jsonData = await this._fetchWithTimeout(
-                `${BASE_URL}/agenda/reservas?${params}`, 
+                `${BASE_URL}/agenda/reservas?${params}`,
                 { headers: this.headers }
             );
 
@@ -277,9 +279,28 @@ class ApiService {
                 return allAppointments;
             }
             return [];
-        } catch(error) {
-             console.error('[ApiService] Erro ao listar citas:', error.message);
-             throw new Error("API_ERROR");
+        } catch (error) {
+            console.error('[ApiService] Erro ao listar citas:', error.message);
+            throw new Error("API_ERROR");
+        }
+    }
+
+    async getReporteDiario(fecha) {
+        if (!this.branchId) await this.init();
+        if (!this.branchId) return [];
+        try {
+            const params = new URLSearchParams({
+                fecha: fecha // YYYY-MM-DD
+            });
+            const jsonData = await this._fetchWithTimeout(`${BASE_URL}/agenda/reporte-diario?${params}`, { headers: this.headers });
+
+            if (jsonData.success && jsonData.data && jsonData.data.citas) {
+                return jsonData.data.citas;
+            }
+            return [];
+        } catch (error) {
+            console.error('[ApiService] Erro ao buscar reporte diario:', error.message);
+            return [];
         }
     }
 
@@ -313,8 +334,8 @@ class ApiService {
             console.error('[ApiService] Resposta inesperada ao cancelar:', response);
             return false;
         } catch (error) {
-             console.error('[ApiService] Erro ao cancelar cita:', error.message);
-             return false;
+            console.error('[ApiService] Erro ao cancelar cita:', error.message);
+            return false;
         }
     }
 }
