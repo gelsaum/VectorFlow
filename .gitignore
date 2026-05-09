@@ -6,4 +6,5 @@ logs/
 *.log
 .DS_Store
 output.txt
+*.txt
 *.sqlite*
