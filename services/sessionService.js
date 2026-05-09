@@ -13,8 +13,9 @@ class SessionService {
 
         this.initPromise = (async () => {
             try {
+                const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'sessions.sqlite');
                 this.db = await open({
-                    filename: path.join(__dirname, '..', 'sessions.sqlite'),
+                    filename: dbPath,
                     driver: sqlite3.Database
                 });
 
